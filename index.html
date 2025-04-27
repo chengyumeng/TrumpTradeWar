@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Trump's Trade War</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+  <link rel="preload" href="PressStart2P-vaV7.ttf" as="font" type="font/ttf" >
+  <style>
+    /* Custom font setup */
+    @font-face {
+      font-family: 'PressStart2P';
+      src: url('PressStart2P-vaV7.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+      font-display: swap; /* Helps with font loading behavior */
+    }
+    html, body {
+      font-family: 'PressStart2P', monospace;
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: #222;
+      overflow: hidden;
+    }
+    body {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      min-height: 100vh;
+      min-width: 100vw;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    #gameCanvas {
+      font-family: 'PressStart2P', monospace;
+      position: absolute;
+      left: 0; top: 0;
+      width: 100vw !important;
+      height: 100vh !important;
+      background: #f2e7c9;
+      border: 0;
+      border-radius: 0;
+      box-shadow: 0 8px 32px 0 rgba(0,0,0,0.4);
+      display: block;
+      z-index: 1;
+    }
+    #info {
+  position: fixed;
+  top: 18vh;
+  left: 6vw;
+  right: 6vw;
+  color: #d93d3d;              /* 设置文字颜色为白色 */
+  font-size: 2vmin;
+  user-select: none;
+  z-index: 10;
+  pointer-events: none;
+  max-width: 90vw;
+  text-align: left;
+  line-height: 2.2;         /* 提高行间距，可根据需要调整数值 */
+}
+    #showLeaderboardBtn {
+      position: fixed;
+      right: 4vw;
+      bottom: 4vw;
+      z-index: 12;
+      background: #1976d2;
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 11vw;
+      height: 11vw;
+      max-width: 60px;
+      max-height: 60px;
+      min-width: 36px;
+      min-height: 36px;
+      font-size: 6vw;
+      box-shadow: 0 2px 8px #0003;
+      cursor: pointer;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+  </style>
+</head>
+<body>
+  <div id="info"></div>
+  <div style="position:relative;display:flex;justify-content:center;align-items:center;width: 100%;height: 100%;">
+    <canvas id="gameCanvas" height="700" width="800"></canvas>
+  </div>
+
+  <!-- 排行榜弹窗 -->
+  <div id="leaderboardModal" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.6);display:none;justify-content:center;align-items:center;z-index:10;">
+    <div style="background:#fff;border-radius:12px;min-width:320px;max-width:90vw;padding:24px 20px 14px 20px;box-shadow:0 6px 24px #0002;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h3 style="margin:0 0 12px 0;font-size:22px;" id="leaderboardTitle">排行榜</h3>
+        <button onclick="closeLeaderboard()" style="background:#c62828;color:#fff;border:none;border-radius:6px;padding:2px 12px;font-size:16px;cursor:pointer;">关闭</button>
+      </div>
+      <div style="margin-bottom:14px;">
+        <button onclick="switchLeaderboard('personal')" id="btnPersonal" style="margin-right:10px;">个人榜</button>
+        <button onclick="switchLeaderboard('region')" id="btnRegion" style="margin-right:10px;">地区榜</button>
+        <button onclick="switchLeaderboard('global')" id="btnGlobal">全球榜</button>
+      </div>
+      <div id="leaderboardContent"></div>
+    </div>
+  </div>
+  <script>
+     // ====== 新增: 简单的ajax工具 ======
+     function ajax({ url, method='GET', data, params, success, error }) {
+      let fullUrl = url;
+      if (params) {
+        const arr = [];
+        for (let k in params) arr.push(`${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`);
+        fullUrl = url + (url.indexOf('?') >= 0 ? '&' : '?') + arr.join('&');
+      }
+      const xhr = new XMLHttpRequest();
+      xhr.open(method, fullUrl, true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4) {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            success && success(JSON.parse(xhr.responseText));
+          } else {
+            error && error(xhr.status, xhr.responseText);
+          }
+        }
+      };
+      xhr.send(data ? JSON.stringify(data) : null);
+    }
+
+    // ====== 用户名（可扩展为输入）======
+    const USER_NAME = "你";
+
+    // --- 音效相关 ---
+    // 使用Web Audio API生成哔哔声
+    let audioCtx = null;
+    let chargingBeepInterval = null;
+    let lastBeepTime = 0;
+
+    function playBeep(duration = 60, frequency = 900, volume = 0.25) {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      const oscillator = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      oscillator.type = "square";
+      oscillator.frequency.value = frequency;
+      gain.gain.value = volume;
+      oscillator.connect(gain);
+      gain.connect(audioCtx.destination);
+      oscillator.start();
+      oscillator.stop(audioCtx.currentTime + duration / 1000);
+      oscillator.onended = () => { gain.disconnect(); oscillator.disconnect(); };
+    }
+
+    // 欢快音效（得分时播放）
+    function playHappySound() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      // 一个简单的“上扬”三音阶音效
+      const now = audioCtx.currentTime;
+      const notes = [
+        { f: 660, t: 0, d: 0.09 },
+        { f: 880, t: 0.11, d: 0.11 },
+        { f: 1046, t: 0.24, d: 0.14 }
+      ];
+      for (const n of notes) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = "triangle";
+        osc.frequency.value = n.f;
+        gain.gain.value = 0.22;
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now + n.t);
+        osc.stop(now + n.t + n.d);
+        osc.onended = () => { gain.disconnect(); osc.disconnect(); };
+      }
+    }
+
+    // 悲伤音效（任期结束时播放）
+    function playSadSound() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      const now = audioCtx.currentTime;
+      // 一个“下行”三音阶音效
+      const notes = [
+        { f: 880, t: 0, d: 0.13 },
+        { f: 660, t: 0.12, d: 0.16 },
+        { f: 392, t: 0.31, d: 0.28 }
+      ];
+      for (const n of notes) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = "sawtooth";
+        osc.frequency.value = n.f;
+        gain.gain.value = 0.18;
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now + n.t);
+        osc.stop(now + n.t + n.d);
+        osc.onended = () => { gain.disconnect(); osc.disconnect(); };
+      }
+    }
+
+    // 像素化特朗普头像（10x10像素）
+    const trumpPixelArt = [
+      [0,0,1,1,1,1,1,1,0,0],
+      [0,1,2,2,2,2,2,2,1,0],
+      [1,2,3,3,3,3,3,3,2,1],
+      [1,2,3,4,3,3,4,3,2,1],
+      [1,2,3,3,5,5,3,3,2,1],
+      [1,2,3,6,7,7,6,3,2,1],
+      [0,1,3,3,6,6,3,3,1,0],
+      [0,1,1,3,3,3,3,1,1,0],
+      [0,0,1,8,8,8,8,1,0,0],
+      [0,0,1,9,0,0,9,1,0,0]
+    ];
+    // 颜色索引表
+    const trumpPalette = [
+      null,            // 0: 透明
+      "#eabf2f",       // 1: 金黄色（头发）
+      "#f7d44c",       // 2: 浅金（高光头发）
+      "#ffe0b0",       // 3: 皮肤
+      "#222",          // 4: 眼睛
+      "#a66a4e",       // 5: 嘴巴
+      "#ebb678",       // 6: 皮肤阴影
+      "#fff",          // 7: 眼白
+      "#2b2a29",       // 8: 西装
+      "#c11321"        // 9: 红色领带
+    ];
+
+    // 税单的像素图（10x10）
+    const taxPixelArt = [
+      [0,0,3,3,3,3,3,3,0,0],
+      [0,3,1,1,1,1,1,1,3,0],
+      [3,1,1,2,1,2,1,1,1,3],
+      [3,1,2,1,1,1,2,1,1,3],
+      [3,1,1,1,2,1,1,2,1,3],
+      [3,1,2,1,1,1,2,1,1,3],
+      [3,1,1,1,2,1,1,1,1,3],
+      [3,1,2,1,1,2,1,1,1,3],
+      [3,1,1,4,4,4,1,1,1,3],
+      [0,3,3,3,3,3,3,3,3,0]
+    ];
+    const taxPalette = [
+      null,
+      "#fff",      // 白纸
+      "#90caf9",   // 蓝色线条
+      "#bababa",   // 灰色边
+      "#e53935"    // 红色签名
+    ];
+
+    // 物品像素图案和调色板
+    const phonePixelArt = [
+      [0,0,0,3,3,3,3,0,0,0],
+      [0,0,3,1,1,1,1,3,0,0],
+      [0,3,1,2,2,2,2,1,3,0],
+      [0,3,1,2,2,2,2,1,3,0],
+      [0,3,1,2,2,2,2,1,3,0],
+      [0,3,1,2,2,2,2,1,3,0],
+      [0,3,1,2,2,2,2,1,3,0],
+      [0,3,1,2,2,2,2,1,3,0],
+      [0,3,1,1,1,1,1,1,3,0],
+      [0,0,3,4,0,0,4,3,0,0]
+    ];
+    const planePixelArt = [
+      [0,0,0,0,2,2,0,0,0,0],
+      [0,0,0,2,2,2,2,0,0,0],
+      [0,0,0,2,1,1,2,0,0,0],
+      [0,0,2,2,1,1,2,2,0,0],
+      [0,2,2,2,1,1,2,2,2,0],
+      [2,2,2,2,1,1,2,2,2,2],
+      [0,0,0,2,1,1,2,0,0,0],
+      [0,0,2,2,1,1,2,2,0,0],
+      [0,0,1,2,2,2,2,1,0,0],
+      [0,0,0,1,0,0,1,0,0,0]
+    ];
+    const vegPixelArt = [
+      [0,0,0,0,4,0,0,0,0,0],
+      [0,0,0,4,4,4,0,0,0,0],
+      [0,0,0,0,1,0,0,0,0,0],
+      [0,0,0,1,1,1,0,0,0,0],
+      [0,0,1,1,1,1,1,0,0,0],
+      [0,0,1,1,1,1,1,0,0,0],
+      [0,1,1,1,1,1,1,1,0,0],
+      [0,0,2,1,1,1,2,0,0,0],
+      [0,0,0,2,2,2,0,0,0,0],
+      [0,0,0,0,2,0,0,0,0,0]
+    ];
+    const fruitPixelArt = [
+      [0,0,0,0,0,4,0,0,0,0],
+      [0,0,0,0,4,4,0,0,0,0],
+      [0,0,0,1,1,1,1,0,0,0],
+      [0,0,1,1,2,2,1,1,0,0],
+      [0,1,1,2,2,2,2,1,1,0],
+      [0,1,2,2,2,2,2,2,1,0],
+      [0,1,2,2,2,2,2,2,1,0],
+      [0,0,1,2,2,2,2,1,0,0],
+      [0,0,0,1,1,1,1,0,0,0],
+      [0,0,0,0,3,3,0,0,0,0]
+    ];
+    const laptopPixelArt = [
+      [0,0,0,0,3,3,3,3,0,0],
+      [0,0,0,3,1,1,1,1,3,0],
+      [0,0,3,1,2,2,2,2,1,3],
+      [0,3,1,2,2,2,2,2,2,1],
+      [0,3,1,2,2,2,2,2,2,1],
+      [0,3,1,2,2,2,2,2,2,1],
+      [0,3,1,2,2,2,2,2,2,1],
+      [0,3,1,1,1,1,1,1,1,3],
+      [0,0,3,3,3,3,3,3,3,0],
+      [0,0,0,0,3,4,3,0,0,0]
+    ];
+
+    const itemSprites = [
+      {
+        name: "手机",
+        art: phonePixelArt,
+        palette: [
+          null, "#9ea0a6", "#aee6f9", "#444", "#f5b600"
+        ]
+      },
+      {
+        name: "飞机",
+        art: planePixelArt,
+        palette: [
+          null, "#dee8fa", "#b9e0ff", "#444", "#fffb00"
+        ]
+      },
+      {
+        name: "胡萝卜",
+        art: vegPixelArt,
+        palette: [
+          null, "#ff9800", "#ffc107", "#795548", "#51a837"
+        ]
+      },
+      {
+        name: "苹果",
+        art: fruitPixelArt,
+        palette: [
+          null, "#e74c3c", "#fff176", "#c0392b", "#388e3c"
+        ]
+      },
+      {
+        name: "电脑",
+        art: laptopPixelArt,
+        palette: [
+          null, "#c7c7c7", "#d3eaff", "#666", "#1976d2"
+        ]
+      }
+    ];
+
+    // 游戏参数
+    // ==== 自适应画布 ====
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    let WIDTH = window.innerWidth;
+    let HEIGHT = window.innerHeight;
+    function resizeCanvas() {
+      WIDTH = window.innerWidth;
+      HEIGHT = window.innerHeight;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = WIDTH * dpr;
+      canvas.height = HEIGHT * dpr;
+      canvas.style.width = "100vw";
+      canvas.style.height = "100vh";
+      ctx.setTransform(1,0,0,1,0,0);
+      ctx.scale(dpr, dpr);
+      // player等对象需适配
+      player.x = WIDTH / 2;
+      player.y = HEIGHT - HEIGHT * 0.07;
+      // 首屏静态画面
+      if (!gameStarted) {
+        drawTradeWarBackground(ctx, WIDTH, HEIGHT);
+        ctx.save();
+        ctx.globalAlpha = 0.8;
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, HEIGHT/2 - HEIGHT*0.12, WIDTH, HEIGHT*0.19);
+        ctx.globalAlpha = 1;
+        ctx.font = `bold 5vmin PressStart2P`;
+        ctx.fillStyle = "#fff";
+        ctx.textAlign = "center";
+        ctx.fillText("Trump's Trade War", WIDTH/2, HEIGHT/2 - HEIGHT*0.02);
+        ctx.font = `2vmin PressStart2P`;
+        ctx.fillText("Touch To Make Trump Greate Again", WIDTH/2, HEIGHT/2 + HEIGHT*0.04);
+        ctx.restore();
+      }
+    }
+    window.addEventListener('resize', resizeCanvas);
+    const infoDiv = document.getElementById('info');
+
+
+    // 玩家小人参数（像素头像宽高）
+    const player = {
+      x: WIDTH / 2,
+      y: HEIGHT - 50,
+      w: 48,
+      h: 48,
+      offset: 10,
+    };
+
+    // 弹药参数
+    let ammo = null;
+    let charging = false;
+    let chargeStart = 0;
+    const minEnergy = 10;
+    const maxEnergy = 300;
+    const ammoSize = Math.min(WIDTH, HEIGHT) * 0.045;
+
+    // 重物参数
+    let block = null;
+    const blockMinWeight = 80;
+    const blockMaxWeight = 230;
+    const blockMinSize = Math.min(WIDTH, HEIGHT) * 0.045;
+    const blockMaxSize = Math.min(WIDTH, HEIGHT) * 0.13;
+    const blockDropSpeed = Math.max(2.2, HEIGHT * 0.003);
+
+
+    // 游戏状态
+    let score = 0;
+    let gameover = false;
+    let gameStarted = false;
+    let msg = "";
+
+     // ====== 排行榜相关 ======
+    let leaderboardType = 'personal';
+    let leaderboardDataCache = {
+      personal: null,
+      region: null,
+      global: null
+    };
+
+    function showLeaderboard() {
+      document.getElementById('leaderboardModal').style.display = "flex";
+      switchLeaderboard(leaderboardType);
+    }
+    function closeLeaderboard() {
+      document.getElementById('leaderboardModal').style.display = "none";
+    }
+    function switchLeaderboard(type) {
+      leaderboardType = type;
+      document.getElementById('btnPersonal').style.background = type==='personal' ? "#1976d2" : "#eee";
+      document.getElementById('btnPersonal').style.color = type==='personal' ? "#fff" : "#333";
+      document.getElementById('btnRegion').style.background = type==='region' ? "#1976d2" : "#eee";
+      document.getElementById('btnRegion').style.color = type==='region' ? "#fff" : "#333";
+      document.getElementById('btnGlobal').style.background = type==='global' ? "#1976d2" : "#eee";
+      document.getElementById('btnGlobal').style.color = type==='global' ? "#fff" : "#333";
+
+      if (leaderboardDataCache[type]) {
+        renderLeaderboard(type, leaderboardDataCache[type]);
+      } else {
+        getLeaderboardData(type, function(data){
+          leaderboardDataCache[type] = data;
+          renderLeaderboard(type, data);
+        });
+      }
+    }
+
+    function getLeaderboardData(type, cb) {
+      ajax({
+        url: `http://localhost:5050/api/leaderboard/${type}`,
+        params: { user: USER_NAME },
+        success: cb,
+        error: function(status, err){
+          renderLeaderboard(type, null, true);
+        }
+      });
+    }
+
+    function renderLeaderboard(type, data, isError) {
+      let html = "";
+      if (isError) {
+        html = `<div style="color:#c62828;text-align:center;padding:18px 0;">无法获取排行榜数据</div>`;
+      } else if(type==='personal' && data) {
+        document.getElementById('leaderboardTitle').textContent = "个人最高分";
+        html = `<div style="font-size:22px;margin:18px 0 14px 0;text-align:center;color:#1976d2;">${data.score || 0} 天</div>`;
+      } else if(type==='region' && data) {
+        document.getElementById('leaderboardTitle').textContent = "地区榜（中国）";
+        html = `<table style="width:100%;font-size:17px;"><tbody>`
+          + data.map((item,i)=>`<tr style="background:${item.name===USER_NAME?'#e3f2fd':'#fff'}">
+              <td style="padding:3px 9px;">${i+1}</td>
+              <td style="padding:3px 9px;">${item.name}</td>
+              <td style="text-align:right;padding:3px 9px;">${item.score}</td>
+            </tr>`).join('')
+          + `</tbody></table>`;
+      } else if(type==='global' && data) {
+        document.getElementById('leaderboardTitle').textContent = "全球榜";
+        html = `<table style="width:100%;font-size:17px;"><tbody>`
+          + data.map((item,i)=>`<tr style="background:${item.name===USER_NAME?'#e3f2fd':'#fff'}">
+              <td style="padding:3px 7px;">${i+1}</td>
+              <td style="padding:3px 7px;">${item.name}</td>
+              <td style="padding:3px 7px;">${item.region||'CN'}</td>
+              <td style="text-align:right;padding:3px 7px;">${item.score}</td>
+            </tr>`).join('')
+          + `</tbody></table>`;
+      } else {
+        html = `<div style="color:#888;text-align:center;padding:18px 0;">暂无数据</div>`;
+      }
+      document.getElementById('leaderboardContent').innerHTML = html;
+    }
+
+    // 游戏结束后更新分数到后端
+    function updateLeaderboardOnGameOver() {
+      ajax({
+        url: "http://localhost:5050/api/leaderboard/personal",
+        method: "POST",
+        data: { user: USER_NAME, score: score },
+        success: function() {
+          leaderboardDataCache.personal = null;
+          leaderboardDataCache.region = null;
+          leaderboardDataCache.global = null;
+        }
+      });
+    }
+
+
+    // ====== 新增：Gameover时的榜单按钮 ======
+    function showGameoverLeaderboardBtn() {
+      return
+    // 若已存在则不重复添加
+    if (document.getElementById('gameoverLeaderboardBtn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'gameoverLeaderboardBtn';
+    btn.textContent = 'Ranking';
+    Object.assign(btn.style, {
+    position: 'fixed',
+    left: '50%',
+    top: '85%',
+    transform: 'translate(-50%, 0)',
+    zIndex: 20,
+    background: '#c11321',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '0px',
+    padding: '12px 36px',
+    fontSize: '22px',
+    boxShadow: '0 2px 10px #0004',
+    cursor: 'pointer',
+    transition: 'background 0.2s',
+    marginTop: '32px'
+  });
+  btn.onmouseenter = () => btn.style.background = '#1259a7';
+  btn.onmouseleave = () => btn.style.background = '#1976d2';
+  btn.onclick = () => {
+    showLeaderboard();
+  }
+  document.body.appendChild(btn);
+}
+function hideGameoverLeaderboardBtn() {
+  const btn = document.getElementById('gameoverLeaderboardBtn');
+  if (btn) btn.remove();
+}
+
+    // 生成一个新的重物（确保正对小人正上方）
+    function spawnBlock() {
+      const weight = +(Math.random() * (blockMaxWeight - blockMinWeight) + blockMinWeight).toFixed(1);
+      const size = blockMinSize + (blockMaxSize - blockMinSize) * (weight - blockMinWeight) / (blockMaxWeight - blockMinWeight);
+      const x = player.x;
+      const sprite = itemSprites[Math.floor(Math.random() * itemSprites.length)];
+      return {
+        x, y: -size / 2,
+        size,
+        weight,
+        sprite
+      };
+    }
+
+    // 生成弹药（税单像素形象）
+    function createAmmo(energy) {
+      const speed = 10 - 7 * ((energy - minEnergy) / (maxEnergy - minEnergy));
+      const distance = 80 + 350 * ((energy - minEnergy) / (maxEnergy - minEnergy));
+      return {
+        x: player.x,
+        y: player.y - player.h / 2 - ammoSize / 2,
+        size: ammoSize,
+        energy,
+        flying: true,
+        speed,
+        progress: 0,
+        maxDistance: distance,
+        hit: false
+      };
+    }
+
+    function isColliding(ax, ay, asize, bx, by, bsize) {
+      return (
+        Math.abs(ax - bx) < (asize + bsize) / 2 &&
+        Math.abs(ay - by) < (asize + bsize) / 2
+      );
+    }
+
+    function drawTrump(ctx, x, y, w, h, offset = 0) {
+      const px = trumpPixelArt[0].length;
+      const py = trumpPixelArt.length;
+      const pixelW = w / px;
+      const pixelH = h / py;
+
+      // 在 y 坐标上增加跳动偏移量
+      y += offset;
+      for (let j = 0; j < py; j++) {
+        for (let i = 0; i < px; i++) {
+          const colorIdx = trumpPixelArt[j][i];
+          if (colorIdx) {
+            ctx.fillStyle = trumpPalette[colorIdx];
+            ctx.fillRect(
+              x - w / 2 + i * pixelW,
+              y - h / 2 + j * pixelH,
+              pixelW,
+              pixelH
+            );
+          }
+        }
+      }
+    }
+    function removeTrump(ctx, x, y, w, h, offset = 0) {
+      // 计算实际绘制区域的左上角坐标
+      const left = x - w / 2;
+      const top = y - h / 2 + offset; // offset 影响 y 坐标
+      ctx.clearRect(left, top, w, h);
+    }
+
+    function drawItemSprite(ctx, sprite, x, y, size) {
+      const px = sprite.art[0].length;
+      const py = sprite.art.length;
+      const pixelW = size / px;
+      const pixelH = size / py;
+      for (let j = 0; j < py; j++) {
+        for (let i = 0; i < px; i++) {
+          const colorIdx = sprite.art[j][i];
+          if (colorIdx) {
+            ctx.fillStyle = sprite.palette[colorIdx];
+            ctx.fillRect(
+              x - size/2 + i * pixelW,
+              y - size/2 + j * pixelH,
+              pixelW,
+              pixelH
+            );
+          }
+        }
+      }
+    }
+
+    function drawTaxBill(ctx, x, y, size) {
+      const px = taxPixelArt[0].length;
+      const py = taxPixelArt.length;
+      const pixelW = size / px;
+      const pixelH = size / py;
+      for (let j = 0; j < py; j++) {
+        for (let i = 0; i < px; i++) {
+          const colorIdx = taxPixelArt[j][i];
+          if (colorIdx) {
+            ctx.fillStyle = taxPalette[colorIdx];
+            ctx.fillRect(
+              x - size/2 + i * pixelW,
+              y - size/2 + j * pixelH,
+              pixelW,
+              pixelH
+            );
+          }
+        }
+      }
+    }
+
+    function drawPlayer() {
+      drawTrump(ctx, player.x, player.y, player.w, player.h, player.offset);
+    }
+
+    function drawAmmo() {
+      if (ammo) {
+        ctx.save();
+        drawTaxBill(ctx, ammo.x, ammo.y, ammo.size);
+        ctx.font = "3vmin PressStart2P";
+        ctx.fillStyle = "#ff4c4c";
+        ctx.textAlign = "center";
+        ctx.fillText(ammo.energy.toFixed(1), ammo.x, ammo.y+12);
+        ctx.restore();
+      }
+    }
+
+    function drawBlock() {
+      if (block) {
+        ctx.save();
+        drawItemSprite(ctx, block.sprite, block.x, block.y, block.size);
+        ctx.font = "3vmin PressStart2P";
+        ctx.fillStyle = "#0052d9";
+        ctx.textAlign = "center";
+        ctx.fillText(block.weight.toFixed(1), block.x, block.y + block.size/2+12);
+        ctx.restore();
+      }
+    }
+
+    function getChargeColor(energy) {
+      // 黄色 #ffe600 (255,230,0), 绿色 #3ce62d (60,230,45), 红色 #ff4c4c (255,76,76)
+      // 区间：minEnergy ~ block.weight，block.weight ~ block.weight*1.2，block.weight*1.2~maxEnergy
+      if (!block) return "#ffe600"; // 默认黄色
+      let good = block.weight;
+      let over = block.weight * 1.2;
+      if (energy < good) {
+        // 黄色到绿色
+        let t = (energy - minEnergy) / (good - minEnergy);
+        // interpolate yellow(255,230,0) to green(60,230,45)
+        let r = Math.round(255 + (60-255) * t);
+        let g = 230;
+        let b = Math.round(0 + (45-0) * t);
+        return `rgb(${r},${g},${b})`;
+      } else if (energy < over) {
+        // 绿色到红色
+        let t = (energy - good) / (over - good);
+        // interpolate green(60,230,45) to red(255,76,76)
+        let r = Math.round(60 + (255-60) * t);
+        let g = Math.round(230 + (76-230) * t);
+        let b = Math.round(45 + (76-45) * t);
+        return `rgb(${r},${g},${b})`;
+      } else {
+        // 红色
+        return "#ff4c4c";
+      }
+    }
+
+    function drawChargingBar() {
+      if (charging && !gameover) {
+        const now = Date.now();
+        let energy = Math.min(minEnergy + (now - chargeStart) / 8, maxEnergy);
+        ctx.save();
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(player.x + 60, player.y, 120, 10);
+        ctx.fillStyle = getChargeColor(energy)
+        ctx.fillRect(player.x + 60, player.y , 120 * (energy-minEnergy)/(maxEnergy-minEnergy), 10);
+        ctx.strokeStyle = "#222";
+        ctx.strokeRect(player.x + 60, player.y, 120, 10);
+        ctx.font = "2vmin PressStart2P";
+        ctx.fillStyle = getChargeColor(energy)
+        ctx.textAlign = "center";
+        // 加入当前顺差显示
+        ctx.fillText(`${energy.toFixed(1)} / ${block ? block.weight.toFixed(1) : '--'}`, player.x + 120, player.y - 10);
+        ctx.restore();
+      }
+    }
+
+    // 贸易战风格像素国旗与关税墙背景
+    function drawTradeWarBackground(ctx, width, height) {
+      // 填充淡黄色底（象征纸币/贸易）
+      ctx.fillStyle = "#f2e7c9";
+      ctx.fillRect(0, 0, width, height);
+
+      drawPlayer();
+
+
+      // 美国国旗左上角
+      drawPixelUSFlag(ctx, 40, 60, 110, 70);
+      // 中国国旗右上角
+      drawPixelChinaFlag(ctx, width-40-110, 60, 110, 70);
+
+      // 画一堵像素"贸易墙"（红白砖块）在底部
+      let brickW = 32, brickH = 16, rows = 1;
+      for(let r=0;r<rows;r++) {
+        for(let c=0;c<Math.ceil(width/brickW);c++) {
+          ctx.fillStyle = (c+r)%2==0 ? "#c62828" : "#fff";
+          ctx.fillRect(c*brickW - (r%2)*brickW/2, height-(rows-r)*brickH, brickW, brickH-1);
+          ctx.strokeStyle = "#888";
+          ctx.strokeRect(c*brickW - (r%2)*brickW/2, height-(rows-r)*brickH, brickW, brickH-1);
+        }
+      }
+
+      // 画一根“贸易战”闪电
+      ctx.save();
+      ctx.strokeStyle = "#f9d923";
+      ctx.lineWidth = 6;
+      ctx.shadowColor = "#f9d923";
+      ctx.shadowBlur = 16;
+      ctx.beginPath();
+      ctx.moveTo(width/2-50, 130);
+      ctx.lineTo(width/2-10, 190);
+      ctx.lineTo(width/2+30, 170);
+      ctx.lineTo(width/2, 250);
+      ctx.stroke();
+      ctx.restore();
+
+      // 画一些美元和人民币符号
+      ctx.font = "bold 6vmin PressStart2P";
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = "#388e3c";
+      ctx.fillText("$", width*0.25, height*0.22);
+      ctx.fillStyle = "#c62828";
+      ctx.fillText("¥", width*0.75, height*0.33);
+      ctx.globalAlpha = 1;
+    }
+
+    // 简化版像素美国国旗
+    function drawPixelUSFlag(ctx, x, y, w, h) {
+      // 红白条
+      let stripeH = h/7;
+      for(let i=0;i<7;i++) {
+        ctx.fillStyle = i%2==0 ? "#e53935" : "#fff";
+        ctx.fillRect(x, y+i*stripeH, w, stripeH);
+      }
+      // 蓝色方块
+      ctx.fillStyle = "#27408b";
+      ctx.fillRect(x, y, w*0.45, h*0.55);
+      // 星星
+      ctx.save();
+      ctx.fillStyle = "#fff";
+      let starR = w*0.045;
+      for(let row=0;row<3;row++) for(let col=0;col<4;col++) {
+        let sx = x+starR*1.7+col*starR*2.1;
+        let sy = y+starR*1.6+row*starR*2.5;
+        drawStar(ctx, sx, sy, starR, 5);
+      }
+      ctx.restore();
+    }
+
+    // 简化版像素中国国旗
+    function drawPixelChinaFlag(ctx, x, y, w, h) {
+      ctx.fillStyle = "#de2910";
+      ctx.fillRect(x, y, w, h);
+      // 大星
+      ctx.save();
+      ctx.fillStyle = "#ffde00";
+      drawStar(ctx, x+w*0.18, y+h*0.23, h*0.13, 5);
+      // 四颗小星
+      let starPos = [
+        [0.37,0.09, -Math.PI/7], [0.48,0.18, Math.PI/12], [0.48,0.34, Math.PI/7], [0.37,0.42, Math.PI/3]
+      ];
+      for(let [dx,dy,rot] of starPos) {
+        ctx.save();
+        ctx.translate(x+w*dx, y+h*dy);
+        ctx.rotate(rot);
+        drawStar(ctx, 0, 0, h*0.05, 5);
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
+    // 五角星绘制
+    function drawStar(ctx, cx, cy, r, points) {
+      ctx.beginPath();
+      for(let i=0;i<points*2;i++) {
+        let ang = Math.PI/2 + i*Math.PI/points;
+        let rr = i%2==0 ? r : r*0.42;
+        ctx.lineTo(cx + Math.cos(ang)*rr, cy - Math.sin(ang)*rr);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+
+
+    function loop() {
+      ctx.clearRect(0, 0, WIDTH, HEIGHT);
+      player.offset = 10;
+      drawTradeWarBackground(ctx, WIDTH, HEIGHT);
+
+      drawBlock();
+      drawAmmo();
+      drawChargingBar();
+
+      // 蓄能实时中央大字提示和 infoDiv 提示
+      if (charging && !gameover) {
+        const now = Date.now();
+        let energy = Math.min(minEnergy + (now - chargeStart) / 8, maxEnergy);
+
+        // 播放越来越快的哔哔音效
+        // 蓄能低: 慢, 蓄能高: 快, 最高频率: 0.08s一声, 最低0.45s一声
+        let minInterval = 80, maxInterval = 450;
+        let t = Math.max(0, Math.min(1, (energy - minEnergy) / (maxEnergy - minEnergy)));
+        let beepInterval = maxInterval - (maxInterval - minInterval) * t;
+        if (now - lastBeepTime > beepInterval) {
+          playBeep(40, 900 + t*400, 0.17 + t*0.08);
+          lastBeepTime = now;
+        }
+
+        ctx.save();
+        ctx.font = "bold 8vmin PressStart2P";
+        ctx.textAlign = "center";
+        ctx.fillStyle = getChargeColor(energy);
+        // 当前关税和顺差都显示
+        ctx.fillText(
+          "" + energy.toFixed(1) + "/" + 
+          (block ? " " + block.weight.toFixed(1) : ""),
+          WIDTH/2, HEIGHT/2
+        );
+        ctx.restore();
+      } else if (!gameover) {
+        infoDiv.textContent = `current tenure: ${score} days`;
+      }
+
+      if (block && !gameover) {
+        block.y += blockDropSpeed;
+        if (block.y + block.size/2 >= HEIGHT - player.h/2) {
+          msg = "";
+          gameover = true;
+          updateLeaderboardOnGameOver();
+        }
+      }
+
+      if (ammo && ammo.flying && !gameover) {
+        ammo.y -= ammo.speed;
+        ammo.progress += ammo.speed;
+        if (block && isColliding(ammo.x, ammo.y, ammo.size, block.x, block.y, block.size)) {
+          ammo.flying = false;
+          ammo.hit = true;
+          if (ammo.energy > block.weight * 1.2) {
+            msg = `${ammo.energy} > ${block.weight} x 120%`;
+            gameover = true;
+            updateLeaderboardOnGameOver();
+          } else if (ammo.energy < block.weight) {
+            gameover = true;
+            msg = `${ammo.energy} < ${block.weight}`;
+            updateLeaderboardOnGameOver();
+          } else {
+            score++;
+            playHappySound(); // 得分时播放欢快音效
+            block = spawnBlock();
+            ammo = null;
+            infoDiv.textContent = `current tenure: ${score} days`;
+            return requestAnimationFrame(loop);
+          }
+        }
+        if (ammo && ammo.progress > ammo.maxDistance) {
+          ammo.flying = false;
+        }
+      }
+
+      if (ammo && ammo.hit && !gameover && !ammo.flying) {
+        // 允许再次蓄能
+      }
+
+      if (gameover) {
+        // 播放悲伤音效（仅播放一次）
+        if (!loop.sadSoundPlayed) {
+          playSadSound();
+          loop.sadSoundPlayed = true;
+        }
+        // 假设你有一个包含多句话的数组
+        const quotes = [
+      "Oh, I'm really a smart man!",
+  "I'm so talented. Some people would say I'm very, very, very talented.",
+  "I have a very good relationship with my black brothers. I have always had a very good relationship with my black brothers.",
+  "Global warming was proposed by the Chinese to serve the Chinese. The Chinese want to destroy the American manufacturing industry.",
+  "I get along very well with Chinese people, very well, I'm not lying to you."
+];
+
+        // 随机选择一句话
+        const randomIndex = Math.floor(Math.random() * quotes.length);
+        infoDiv.textContent = quotes[randomIndex];
+
+        const faceSize = Math.min(WIDTH, HEIGHT);
+        drawTrump(ctx, WIDTH/2, HEIGHT *4/5, faceSize, faceSize);
+
+        ctx.save();
+        ctx.globalAlpha = 0.8;
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, HEIGHT/2 - 80, WIDTH, 130);
+        ctx.globalAlpha = 1;
+        ctx.font = "5vmin PressStart2P";
+        ctx.fillStyle = "#fff";
+        ctx.textAlign = "center";
+        ctx.fillText(`${score} Days, Trumpt Out!`, WIDTH/2, HEIGHT/2);
+        ctx.font = "2vmin PressStart2P";
+        ctx.fillText(msg, WIDTH/2, HEIGHT/2 + 30);
+        ctx.restore();
+        showGameoverLeaderboardBtn();
+        return;
+      } else {
+        // 复位，保证新一轮游戏能正常播放
+        loop.sadSoundPlayed = false;
+        hideGameoverLeaderboardBtn();
+
+      }
+
+      requestAnimationFrame(loop);
+    }
+
+    // == 增加移动端支持 ==
+    let isTouchCharging = false;
+    function startCharging() {
+        if (gameover) {
+            startGame();
+            return;
+        }
+        if (!gameStarted) {
+            startGame();
+            return;
+        }
+        if (!charging && (!ammo || (!ammo.flying && ammo.hit))) {
+            charging = true;
+            chargeStart = Date.now();
+            lastBeepTime = 0; // 重置哔哔节奏
+        }
+    }
+    function stopCharging() {
+        if (gameover) return;
+        if (charging) {
+            charging = false;
+            let energy = Math.min(minEnergy + (Date.now() - chargeStart) / 8, maxEnergy);
+            ammo = createAmmo(energy);
+        }
+    }
+
+    // PC端键盘
+    document.addEventListener('keydown', function(e){
+        if (e.code === 'Space') {
+            startCharging();
+        }
+    });
+
+    document.addEventListener('keyup', function(e){
+        if (e.code === 'Space') {
+            stopCharging();
+        }
+    });
+
+    // 移动端触摸
+    canvas.addEventListener('touchstart', function(e){
+        e.preventDefault();
+        isTouchCharging = true;
+        startCharging();
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', function(e){
+        e.preventDefault();
+        isTouchCharging = false;
+        stopCharging();
+    }, { passive: false });
+
+    canvas.addEventListener('touchcancel', function(e){
+        e.preventDefault();
+        isTouchCharging = false;
+        stopCharging();
+    }, { passive: false });
+
+    // 防止拖动页面
+    document.body.addEventListener('touchmove', function(e){
+        if (isTouchCharging) e.preventDefault();
+    }, { passive: false });
+
+
+    function startGame() {
+      score = 0;
+      block = spawnBlock();
+      ammo = null;
+      gameover = false;
+      gameStarted = true;
+      msg = "";
+      loop();
+    }
+
+    function startInfoCarousel() {
+        const infoTexts = [
+            "Press and hold the screen to accumulate tariffs, release to implement tariff policies.",
+            "Elementary school math is enough to qualify for Trump's position.",
+            "Keep the trade surplus within a reasonable range to get re-elected.",
+            "Surplus < Tariff < Surplus * 120%.",
+            "Hold down the spacebar or press and hold the screen to charge up, release to fire the tariff bill.",
+            "Trade wars are not difficult; the challenge lies in being fair and balanced.",
+        ];
+        let infoIndex = Math.floor(Math.random() * infoTexts.length);
+        infoDiv.textContent = infoTexts[infoIndex];
+        setInterval(() => {
+          if (!gameStarted) {
+                    infoIndex = (infoIndex + 1) % infoTexts.length;
+                    infoDiv.textContent = infoTexts[infoIndex];
+            }
+      }, 3000);
+      setInterval(() => {
+          if (!gameStarted) {
+            removeTrump(ctx, player.x, player.y, player.w, player.h, player.offset);
+            player.offset = Math.random() * player.h * -5;
+            drawPlayer();
+            }
+      }, 500);
+    }
+    startInfoCarousel();
+    document.fonts.addEventListener("loadingdone", () => {
+      resizeCanvas();
+    });
+  </script>
+</body>
+</html> 
